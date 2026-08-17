@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>自动化企业风险查询助手 - 基础版</title>
+    <link rel="stylesheet" href="/ui/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-logo" aria-hidden="true">企</span>
+          <div class="brand-product">
+            <strong>企业风险查询助手</strong>
+            <span>企查查基础版</span>
+          </div>
+        </div>
+
+        <nav class="side-nav" aria-label="模块">
+          <button class="active" type="button" data-view="dashboard">
+            <span>控制台</span>
+          </button>
+          <button type="button" data-view="companies">
+            <span>公司名单</span>
+          </button>
+          <button type="button" data-view="rules">
+            <span>预警规则</span>
+          </button>
+          <button type="button" data-view="results">
+            <span>扫描结果</span>
+          </button>
+        </nav>
+
+        <div class="runtime-box">
+          <span class="status-dot" id="statusDot"></span>
+          <div>
+            <span class="runtime-label">运行状态</span>
+            <strong id="runtimeStatus">空闲</strong>
+            <small id="runtimeMeta">等待任务</small>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <span class="eyebrow">企业风险管理中心</span>
+            <h2 id="pageTitle">控制台</h2>
+            <p id="pageSubtitle">启动登录、扫描任务，并查看实时运行状态。</p>
+          </div>
+          <div class="top-actions">
+            <div class="backend-switch" id="backendSwitch">
+              <span class="backend-switch-label">后端环境</span>
+              <div class="backend-segments" id="backendSegments" role="radiogroup" aria-label="后端环境"></div>
+              <small id="backendEnvironmentUrl">正在读取环境配置</small>
+            </div>
+            <button class="btn ghost" id="refreshBtn" type="button">
+              <span class="btn-icon">↻</span>
+              刷新
+            </button>
+            <a class="btn ghost" id="downloadBtn" href="#" aria-disabled="true">
+              <span class="btn-icon">↓</span>
+              导出
+            </a>
+          </div>
+        </header>
+
+        <section class="view active" id="view-dashboard" data-title="控制台" data-subtitle="启动登录、扫描任务，并查看实时运行状态。">
+          <div class="command-bar">
+            <button class="btn primary" id="loginBtn" type="button">
+              登录企查查
+            </button>
+            <button class="btn success" id="scanBtn" type="button">
+              <span class="btn-icon">▶</span>
+              执行扫描
+            </button>
+            <button class="btn warn" id="continueBtn" type="button">
+              <span class="btn-icon">↵</span>
+              人工继续
+            </button>
+            <button class="btn danger" id="stopBtn" type="button">
+              <span class="btn-icon">■</span>
+              终止任务
+            </button>
+          </div>
+
+          <div class="scan-progress idle" id="scanProgress" aria-live="polite">
+            <div class="scan-progress-head">
+              <div>
+                <strong id="scanProgressLabel">扫描尚未开始</strong>
+                <small id="scanProgressMeta">等待扫描任务</small>
+              </div>
+              <b id="scanProgressValue">0%</b>
+            </div>
+            <div class="scan-progress-track" id="scanProgressTrack" role="progressbar" aria-label="企业扫描进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <span id="scanProgressBar"></span>
+            </div>
+          </div>
+
+          <div class="dashboard-grid">
+            <section class="metric-card task-metric">
+              <div class="metric-label"><span>当前任务</span></div>
+              <strong id="sessionKind">未运行</strong>
+              <small id="sessionFile">暂无结果文件</small>
+            </section>
+            <section class="metric-card company-metric">
+              <div class="metric-label"><span>待扫描企业</span></div>
+              <strong><b id="companyCount">0</b> 家</strong>
+              <small id="importSummary">等待导入</small>
+            </section>
+            <section class="metric-card result-metric">
+              <div class="metric-label"><span>最新扫描结果</span></div>
+              <strong id="resultCount">0 条</strong>
+              <small id="selectedResultName">暂无结果</small>
+            </section>
+          </div>
+
+          <section class="panel log-panel dashboard-log">
+            <div class="panel-heading">
+              <div>
+                <span class="section-kicker">任务审计</span>
+                <h3>运行记录</h3>
+              </div>
+              <button class="icon-btn" id="clearLogBtn" type="button" title="清空日志" aria-label="清空日志">×</button>
+            </div>
+            <div class="log-stream" id="logStream"></div>
+          </section>
+        </section>
+
+        <section class="view" id="view-companies" data-title="公司名单" data-subtitle="上传或维护待扫描企业，Excel 表头支持 compan_name。">
+          <section class="panel page-panel companies-panel">
+            <div class="panel-heading">
+              <div>
+                <span class="section-kicker">企业信息管理</span>
+                <h3>待扫描企业</h3>
+              </div>
+              <div class="panel-actions">
+                <input id="fileInput" type="file" accept=".csv,.txt,.xlsx,.xlsm" hidden>
+                <button class="icon-btn" id="importBtn" type="button" title="导入文件" aria-label="导入文件">＋</button>
+                <button class="btn small" id="saveCompaniesBtn" type="button">保存名单</button>
+              </div>
+            </div>
+            <div class="company-sync-bar">
+              <label for="companyMonth">
+                <span>排线月份</span>
+                <input id="companyMonth" type="month">
+              </label>
+              <button class="btn ghost small" id="syncCompaniesBtn" type="button">从系统同步</button>
+              <span class="company-sync-status" id="companySyncStatus">尚未从系统同步</span>
+            </div>
+            <textarea id="companiesText" spellcheck="false"></textarea>
+            <div class="mini-stats">
+              <span><strong id="companyCountMirror">0</strong> 家公司</span>
+              <span>支持 CSV/TXT/XLSX/XLSM，表头可用 compan_name</span>
+            </div>
+          </section>
+        </section>
+
+        <section class="view" id="view-rules" data-title="预警规则" data-subtitle="配置扫描间隔、调试数量和风险分级阈值。">
+          <div class="rules-layout">
+            <section class="panel settings-card">
+              <div class="panel-heading">
+                <div>
+                  <span class="section-kicker">执行参数</span>
+                  <h3>扫描设置</h3>
+                </div>
+              </div>
+
+              <div class="form-grid">
+                <label>
+                  <span>间隔毫秒</span>
+                  <input id="delayMs" type="number" min="0" step="500" value="5000">
+                </label>
+                <label>
+                  <span>调试数量</span>
+                  <input id="limit" type="number" min="0" step="1" placeholder="0">
+                </label>
+                <label class="check-row">
+                  <input id="assumeLoggedIn" type="checkbox">
+                  <span>跳过登录确认</span>
+                </label>
+              </div>
+            </section>
+
+            <section class="panel rule-panel">
+              <div class="panel-heading">
+                <div>
+                  <span class="section-kicker">风险评级标准</span>
+                  <h3>分级规则</h3>
+                </div>
+                <div class="panel-actions">
+                  <button class="btn ghost small" id="addRuleBtn" type="button">
+                    <span class="btn-icon">＋</span>
+                    新增规则
+                  </button>
+                  <button class="btn small" id="saveRulesBtn" type="button">保存规则</button>
+                </div>
+              </div>
+              <div class="severity-legend" aria-label="预警等级">
+                <span class="level-badge level-正常">正常</span>
+                <span class="level-badge level-提示">提示</span>
+                <span class="level-badge level-关注">关注</span>
+                <span class="level-badge level-高危">高危</span>
+                <span class="level-badge level-重大">重大</span>
+              </div>
+              <div class="rule-table-header" aria-hidden="true">
+                <span>风险指标</span>
+                <span>触发条件</span>
+                <span>预警等级</span>
+                <span>提示内容</span>
+                <span></span>
+              </div>
+              <div class="rule-editor" id="ruleEditor"></div>
+              <div class="rule-footer">
+                <span id="ruleCount">0 条规则</span>
+                <span>规则按最高预警等级汇总</span>
+              </div>
+              <textarea id="rulesText" spellcheck="false" hidden aria-hidden="true"></textarea>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="view-results" data-title="扫描结果" data-subtitle="查看最近扫描结果，并导出 CSV 文件。">
+          <section class="results-panel page-panel">
+            <div class="panel-heading">
+              <div>
+                <span class="section-kicker">企业风险扫描记录</span>
+                <h3>结果列表</h3>
+              </div>
+              <div class="result-toolbar">
+                <label class="filter-control">
+                  <span>预警等级</span>
+                  <select id="warningLevelFilter" aria-label="按预警等级筛选">
+                    <option value="">全部等级</option>
+                    <option value="正常">正常</option>
+                    <option value="提示">提示</option>
+                    <option value="关注">关注</option>
+                    <option value="高危">高危</option>
+                    <option value="重大">重大</option>
+                  </select>
+                </label>
+                <select id="resultFileSelect" aria-label="结果文件"></select>
+              </div>
+            </div>
+            <div class="risk-review idle" id="riskReview" aria-live="polite">
+              <div class="risk-review-main">
+                <div class="risk-review-title">
+                  <span class="risk-review-mark" aria-hidden="true"></span>
+                  <div>
+                    <strong id="riskReviewTitle">暂无待回传结果</strong>
+                    <small id="riskReviewMessage">扫描完成后将在这里审核重大风险结果</small>
+                  </div>
+                </div>
+                <button class="btn review-confirm" id="confirmRiskPushBtn" type="button" hidden>确认回传</button>
+              </div>
+              <div class="risk-review-stats" id="riskReviewStats" hidden>
+                <span>业务月份 <b id="reviewBizMonth">-</b></span>
+                <span>扫描结果 <b id="reviewScannedCount">0</b></span>
+                <span>失败记录 <b id="reviewFailedCount">0</b></span>
+                <span>重大风险 <b id="reviewMajorCount">0</b></span>
+                <span>快照类型 <b id="reviewSnapshotType">-</b></span>
+                <span>回传环境 <b id="reviewBackendEnvironment">-</b></span>
+              </div>
+              <div class="risk-review-activity" aria-hidden="true"><span></span></div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead id="resultHead"></thead>
+                <tbody id="resultBody"></tbody>
+              </table>
+              <div class="empty-state" id="emptyResults">暂无结果</div>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/ui/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,25 @@
+{
+  "severityOrder": [
+    "正常",
+    "提示",
+    "关注",
+    "高危",
+    "重大"
+  ],
+  "normalLevel": "正常",
+  "normalMessage": "未触发预警规则",
+  "thresholds": [
+    {
+      "field": "自身风险重要",
+      "gte": 1,
+      "level": "重大",
+      "message": "自身风险中存在重要风险 {value} 条"
+    },
+    {
+      "field": "自身风险",
+      "gte": 1,
+      "level": "重大",
+      "message": "自身风险达到 {value} 条，建议重点核查"
+    }
+  ]
+}

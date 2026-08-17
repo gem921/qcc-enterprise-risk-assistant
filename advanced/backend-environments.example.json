@@ -1,0 +1,51 @@
+{
+  "defaultEnvironment": "local",
+  "environments": [
+    {
+      "key": "local",
+      "name": "本地示例",
+      "baseUrl": "http://127.0.0.1:8080",
+      "production": false,
+      "endpoints": {
+        "fetchCompanies": {
+          "enabled": false,
+          "method": "GET",
+          "path": "/api/risk-scan/companies",
+          "monthQueryParam": "month",
+          "timeoutMs": 10000,
+          "headers": {}
+        },
+        "pushResults": {
+          "enabled": false,
+          "method": "POST",
+          "path": "/api/risk-scan/records",
+          "timeoutMs": 10000,
+          "headers": {}
+        }
+      }
+    },
+    {
+      "key": "production",
+      "name": "线上示例",
+      "baseUrl": "https://api.example.com",
+      "production": true,
+      "endpoints": {
+        "fetchCompanies": {
+          "enabled": false,
+          "method": "GET",
+          "path": "/api/risk-scan/companies",
+          "monthQueryParam": "month",
+          "timeoutMs": 10000,
+          "headers": {}
+        },
+        "pushResults": {
+          "enabled": false,
+          "method": "POST",
+          "path": "/api/risk-scan/records",
+          "timeoutMs": 10000,
+          "headers": {}
+        }
+      }
+    }
+  ]
+}

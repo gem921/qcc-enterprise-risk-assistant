@@ -1,0 +1,24 @@
+# Local integration settings may contain credentials.
+**/backend-environments.local.json
+.env
+.env.*
+!.env.example
+
+# Company lists, uploaded spreadsheets and scan outputs.
+**/data/company-lists/companies.csv
+**/data/company-lists/uploads/*
+!**/data/company-lists/uploads/.gitkeep
+**/data/results/*
+!**/data/results/.gitkeep
+
+# Browser profiles contain cookies and login sessions.
+**/runtime/*
+!**/runtime/.gitkeep
+
+# Local tooling.
+*.log
+*.pid
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
