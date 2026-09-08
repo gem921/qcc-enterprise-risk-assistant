@@ -29,7 +29,8 @@ const elements = {
   rulesText: $("#rulesText"),
   ruleEditor: $("#ruleEditor"),
   ruleCount: $("#ruleCount"),
-  delayMs: $("#delayMs"),
+  delayMinSeconds: $("#delayMinSeconds"),
+  delayMaxSeconds: $("#delayMaxSeconds"),
   limit: $("#limit"),
   assumeLoggedIn: $("#assumeLoggedIn"),
   logStream: $("#logStream"),
@@ -302,6 +303,13 @@ function renderRuleEditor() {
   for (const rule of Array.isArray(rulesDocument.thresholds) ? rulesDocument.thresholds : []) {
     elements.ruleEditor.append(createRuleRow(rule));
   }
+  const scanInterval = rulesDocument.scanInterval || {};
+  elements.delayMinSeconds.value = Number.isFinite(Number(scanInterval.minSeconds))
+    ? Number(scanInterval.minSeconds)
+    : 5;
+  elements.delayMaxSeconds.value = Number.isFinite(Number(scanInterval.maxSeconds))
+    ? Number(scanInterval.maxSeconds)
+    : 15;
   syncRulesTextFromEditor();
 }
 
@@ -323,6 +331,10 @@ function syncRulesTextFromEditor() {
     normalLevel: rulesDocument?.normalLevel || "正常",
     normalMessage: rulesDocument?.normalMessage || "未触发预警规则",
     thresholds,
+    scanInterval: {
+      minSeconds: Math.max(0, Number(elements.delayMinSeconds.value) || 0),
+      maxSeconds: Math.max(0, Number(elements.delayMaxSeconds.value) || 0),
+    },
   };
   elements.rulesText.value = `${JSON.stringify(rulesDocument, null, 2)}\n`;
   elements.ruleCount.textContent = `${thresholds.length} 条规则`;
@@ -755,7 +767,8 @@ buttons.scan.addEventListener("click", async () => {
   await post("/api/start-scan", {
     companiesText: elements.companiesText.value,
     rulesText: elements.rulesText.value,
-    delayMs: elements.delayMs.value,
+    delayMinSeconds: elements.delayMinSeconds.value,
+    delayMaxSeconds: elements.delayMaxSeconds.value,
     limit: elements.limit.value,
     assumeLoggedIn: elements.assumeLoggedIn.checked,
     bizMonth: elements.companyMonth.value,

@@ -27,5 +27,9 @@
       "level": "提示",
       "message": "近三个月存在被执行记录 {value} 条，提示关注"
     }
-  ]
+  ],
+  "scanInterval": {
+    "minSeconds": 5,
+    "maxSeconds": 15
+  }
 }

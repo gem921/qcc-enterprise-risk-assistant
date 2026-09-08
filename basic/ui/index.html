@@ -169,8 +169,12 @@
 
               <div class="form-grid">
                 <label>
-                  <span>间隔毫秒</span>
-                  <input id="delayMs" type="number" min="0" step="500" value="5000">
+                  <span>最小间隔（秒）</span>
+                  <input id="delayMinSeconds" type="number" min="0" step="1" value="5">
+                </label>
+                <label>
+                  <span>最大间隔（秒）</span>
+                  <input id="delayMaxSeconds" type="number" min="0" step="1" value="15">
                 </label>
                 <label>
                   <span>调试数量</span>

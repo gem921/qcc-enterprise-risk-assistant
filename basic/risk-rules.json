@@ -21,5 +21,9 @@
       "level": "重大",
       "message": "自身风险达到 {value} 条，建议重点核查"
     }
-  ]
+  ],
+  "scanInterval": {
+    "minSeconds": 5,
+    "maxSeconds": 15
+  }
 }

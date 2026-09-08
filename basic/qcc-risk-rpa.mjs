@@ -46,7 +46,9 @@ function usage() {
   --profile-dir <dir>     浏览器登录态目录。默认: runtime/browser-profile
   --browser <file>        Chrome/Edge 路径，不填则自动查找
   --port <number>         Chrome 调试端口。默认: 9222
-  --delay-ms <number>     每家公司之间等待时间。默认: 5000
+  --delay-ms <number>     每家公司之间固定等待毫秒数（兼容旧参数）。默认: 5000
+  --delay-min-ms <number> 每家公司之间随机等待下限（毫秒）
+  --delay-max-ms <number> 每家公司之间随机等待上限（毫秒）
   --limit <number>        只处理前 N 家，调试用
   --assume-logged-in      启动后不暂停等待确认登录
   --auto-confirm-login    自动检测企查查登录成功，不等待命令行回车
@@ -64,6 +66,8 @@ function parseArgs(argv) {
     profileDir: join(SCRIPT_DIR, "runtime", "browser-profile"),
     port: 9222,
     delayMs: 5000,
+    delayMinMs: null,
+    delayMaxMs: null,
     limit: 0,
     manual: true,
     headless: false,
@@ -113,6 +117,12 @@ function parseArgs(argv) {
       case "--delay-ms":
         args.delayMs = Number(next());
         break;
+      case "--delay-min-ms":
+        args.delayMinMs = Number(next());
+        break;
+      case "--delay-max-ms":
+        args.delayMaxMs = Number(next());
+        break;
       case "--limit":
         args.limit = Number(next());
         break;
@@ -133,7 +143,31 @@ function parseArgs(argv) {
     }
   }
 
+  const fallbackDelay = normalizeDelayMs(args.delayMs, 5000);
+  const minDelay = args.delayMinMs == null ? fallbackDelay : normalizeDelayMs(args.delayMinMs);
+  const maxDelay = args.delayMaxMs == null
+    ? (args.delayMinMs == null ? fallbackDelay : minDelay)
+    : normalizeDelayMs(args.delayMaxMs);
+  if (minDelay > maxDelay) {
+    throw new Error("扫描间隔范围无效：最小间隔不能大于最大间隔");
+  }
+  args.delayMinMs = minDelay;
+  args.delayMaxMs = maxDelay;
   return args;
+}
+
+function normalizeDelayMs(value, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) {
+    if (fallback != null) return fallback;
+    throw new Error("扫描间隔必须是大于或等于 0 的数字");
+  }
+  return Math.floor(number);
+}
+
+function randomDelayMs(minMs, maxMs) {
+  if (minMs === maxMs) return minMs;
+  return minMs + Math.floor(Math.random() * (maxMs - minMs + 1));
 }
 
 function resolvePath(value) {
@@ -857,7 +891,11 @@ async function main() {
 
     writeCsv(args.output, rows);
     if (i < selectedCompanies.length - 1) {
-      await sleep(args.delayMs);
+      const delayMs = randomDelayMs(args.delayMinMs, args.delayMaxMs);
+      if (delayMs > 0) {
+        console.log(`  随机等待 ${(delayMs / 1000).toFixed(3)} 秒后继续下一家公司...`);
+      }
+      await sleep(delayMs);
     }
   }
 

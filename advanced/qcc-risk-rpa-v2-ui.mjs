@@ -636,13 +636,20 @@ function startScan(payload) {
     throw new Error("请选择业务月份");
   }
   const backendEnvironment = getBackendEnvironment(payload.backendEnvironment);
+  const minDelaySeconds = toPositiveNumber(payload.delayMinSeconds, 5);
+  const maxDelaySeconds = toPositiveNumber(payload.delayMaxSeconds, 15);
+  if (minDelaySeconds > maxDelaySeconds) {
+    throw new Error("最小间隔不能大于最大间隔");
+  }
   const cliArgs = [
     "--input",
     COMPANIES_FILE,
     "--output",
     outputFile,
-    "--delay-ms",
-    String(toPositiveNumber(payload.delayMs, 5000)),
+    "--delay-min-ms",
+    String(minDelaySeconds * 1000),
+    "--delay-max-ms",
+    String(maxDelaySeconds * 1000),
   ];
 
   const rawLimit = Number(payload.limit || 0);
