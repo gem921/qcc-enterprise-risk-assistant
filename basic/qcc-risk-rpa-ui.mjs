@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
+import { isIP } from "node:net";
 import {
   existsSync,
   mkdirSync,
@@ -10,7 +11,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { basename, dirname, extname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -47,6 +48,8 @@ const DEFAULT_PUSH_ENDPOINT = {
   path: "/api/risk-scan/major-risks",
 };
 const BACKEND_CONFIG = loadBackendConfig();
+const MAX_JSON_BODY_BYTES = 25 * 1024 * 1024;
+const SSE_HEARTBEAT_MS = 15000;
 
 for (const directory of [COMPANY_LISTS_DIR, COMPANY_UPLOADS_DIR, RESULTS_DIR]) {
   mkdirSync(directory, { recursive: true });
@@ -58,6 +61,7 @@ const logs = [];
 const maxLogs = 500;
 
 let activeSession = null;
+let shutdownServer = async () => {};
 
 function parseServerArgs(argv) {
   const parsed = {
@@ -87,6 +91,41 @@ function parseServerArgs(argv) {
   }
 
   return parsed;
+}
+
+function isLoopbackHost(value) {
+  const host = String(value || "").trim().toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  if (host === "localhost" || host === "::1") return true;
+  return isIP(host) === 4 && host.startsWith("127.");
+}
+
+function validateServerArgs() {
+  if (!isLoopbackHost(args.host)) {
+    throw new Error("UI 服务只允许监听本机回环地址");
+  }
+  if (!Number.isInteger(args.port) || args.port < 1 || args.port > 65535) {
+    throw new Error("--port 必须是有效端口号");
+  }
+}
+
+function serverBaseUrl() {
+  const host = args.host.includes(":") && !args.host.startsWith("[") ? `[${args.host}]` : args.host;
+  return `http://${host}:${args.port}`;
+}
+
+function isAllowedOrigin(request) {
+  const origin = String(request.headers.origin || "").trim();
+  if (!origin) return true;
+
+  try {
+    const parsed = new URL(origin);
+    const port = Number(parsed.port || (parsed.protocol === "http:" ? 80 : 443));
+    return ["http:", "https:"].includes(parsed.protocol)
+      && isLoopbackHost(parsed.hostname)
+      && port === args.port;
+  } catch {
+    return false;
+  }
 }
 
 function usage() {
@@ -286,8 +325,42 @@ function addLog(kind, message) {
 function broadcast(event, payload) {
   const body = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
   for (const response of clients) {
+    if (response.destroyed || response.writableEnded) {
+      clients.delete(response);
+      continue;
+    }
     response.write(body);
   }
+}
+
+function createOutputLogger(kind, onChunk = () => {}) {
+  let buffer = "";
+  let flushTimer = null;
+
+  const flush = () => {
+    if (flushTimer) clearTimeout(flushTimer);
+    flushTimer = null;
+    const message = buffer.replace(/\r$/, "");
+    buffer = "";
+    if (message) addLog(kind, message);
+  };
+
+  return {
+    write(chunk) {
+      const text = String(chunk || "");
+      onChunk(text);
+      buffer += text;
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        const message = line.replace(/\r$/, "");
+        if (message) addLog(kind, message);
+      }
+      if (flushTimer) clearTimeout(flushTimer);
+      if (buffer) flushTimer = setTimeout(flush, 100);
+    },
+    flush,
+  };
 }
 
 function sessionSummary() {
@@ -367,31 +440,27 @@ function spawnCli(kind, cliArgs, options = {}) {
   child.stdout.setEncoding("utf8");
   child.stderr.setEncoding("utf8");
 
-  child.stdout.on("data", (chunk) => {
-    addLog("stdout", chunk);
-    updateScanProgress(session, chunk);
-  });
-  child.stderr.on("data", (chunk) => addLog("stderr", chunk));
+  const stdoutLogger = createOutputLogger("stdout", (chunk) => updateScanProgress(session, chunk));
+  const stderrLogger = createOutputLogger("stderr");
+  child.stdout.on("data", (chunk) => stdoutLogger.write(chunk));
+  child.stderr.on("data", (chunk) => stderrLogger.write(chunk));
 
-  child.on("exit", (code, signal) => {
+  child.on("close", (code, signal) => {
+    stdoutLogger.flush();
+    stderrLogger.flush();
     void finishSession(session, code, signal);
   });
 
   child.on("error", (error) => {
-    session.running = false;
-    session.status = "failed";
-    session.endedAt = nowText();
-    session.child = null;
     addLog("stderr", error.message);
-    if (activeSession === session) {
-      broadcast("state", sessionSummary());
-    }
   });
 
   return sessionSummary();
 }
 
 async function finishSession(session, code, signal) {
+  if (session.finalized) return;
+  session.finalized = true;
   session.running = false;
   session.status = code === 0 ? "done" : "failed";
   session.exitCode = code;
@@ -699,13 +768,34 @@ function continueTask() {
   return sessionSummary();
 }
 
-function stopTask() {
+function stopTask({ allowIdle = false } = {}) {
   if (!isRunning()) {
+    if (allowIdle) return sessionSummary();
     throw new Error("当前没有正在运行的任务。");
   }
   activeSession.child.kill();
   addLog("system", "已请求停止当前任务。");
   return sessionSummary();
+}
+
+async function stopActiveTask(timeoutMs = 5000) {
+  if (!isRunning()) return;
+  const child = activeSession.child;
+  const closePromise = new Promise((resolveClose) => child.once("close", () => resolveClose(true)));
+  stopTask({ allowIdle: true });
+
+  const closed = await Promise.race([
+    closePromise,
+    wait(timeoutMs).then(() => false),
+  ]);
+  if (!closed && child.exitCode == null && child.signalCode == null) {
+    const forcedClosePromise = new Promise((resolveClose) => child.once("close", resolveClose));
+    child.kill("SIGKILL");
+    await Promise.race([
+      forcedClosePromise,
+      wait(1000),
+    ]);
+  }
 }
 
 function importCompaniesFile(payload) {
@@ -784,8 +874,7 @@ function parseExcelCompaniesFromBase64(base64, fileName, ext) {
 }
 
 function findPythonPath() {
-  const bundled = "C:\\Users\\32719\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe";
-  return existsSync(bundled) ? bundled : "python";
+  return String(process.env.QCC_RISK_PYTHON || "python").trim() || "python";
 }
 
 function extractCompanyNames(text) {
@@ -962,8 +1051,22 @@ function contentType(filePath) {
 }
 
 async function readJsonBody(request) {
+  const declaredLength = Number(request.headers["content-length"] || 0);
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_JSON_BODY_BYTES) {
+    const error = new Error("请求内容不能超过 25 MB");
+    error.statusCode = 413;
+    throw error;
+  }
+
   const chunks = [];
+  let totalBytes = 0;
   for await (const chunk of request) {
+    totalBytes += chunk.length;
+    if (totalBytes > MAX_JSON_BODY_BYTES) {
+      const error = new Error("请求内容不能超过 25 MB");
+      error.statusCode = 413;
+      throw error;
+    }
     chunks.push(chunk);
   }
   const raw = Buffer.concat(chunks).toString("utf8");
@@ -996,7 +1099,8 @@ function serveStatic(response, requestPath) {
   let filePath = join(baseDir, relativePath);
   filePath = resolve(filePath);
 
-  if (!filePath.startsWith(resolve(baseDir))) {
+  const resolvedBaseDir = resolve(baseDir);
+  if (filePath !== resolvedBaseDir && !filePath.startsWith(`${resolvedBaseDir}${sep}`)) {
     response.writeHead(403);
     response.end("Forbidden");
     return;
@@ -1041,12 +1145,21 @@ function downloadResult(response, fileName) {
 function handleEvents(request, response) {
   response.writeHead(200, {
     "content-type": "text/event-stream; charset=utf-8",
-    "cache-control": "no-store",
+    "cache-control": "no-store, no-transform",
+    "x-accel-buffering": "no",
     connection: "keep-alive",
   });
+  request.socket.setNoDelay(true);
+  response.flushHeaders();
   response.write(`event: state\ndata: ${JSON.stringify(sessionSummary())}\n\n`);
   clients.add(response);
-  request.on("close", () => clients.delete(response));
+  const heartbeat = setInterval(() => {
+    if (!response.destroyed && !response.writableEnded) response.write(": heartbeat\n\n");
+  }, SSE_HEARTBEAT_MS);
+  request.on("close", () => {
+    clearInterval(heartbeat);
+    clients.delete(response);
+  });
 }
 
 async function handleApi(request, response, url) {
@@ -1152,17 +1265,27 @@ async function handleApi(request, response, url) {
       return;
     }
 
+    if (request.method === "POST" && url.pathname === "/api/shutdown") {
+      sendJson(response, { ok: true });
+      setImmediate(() => void shutdownServer());
+      return;
+    }
+
     response.writeHead(404);
     response.end("Not found");
   } catch (error) {
-    sendError(response, error);
+    sendError(response, error, error.statusCode || 400);
   }
 }
 
 function handleRequest(request, response) {
-  const url = new URL(request.url, `http://${request.headers.host || `${args.host}:${args.port}`}`);
+  const url = new URL(request.url || "/", serverBaseUrl());
 
   if (url.pathname.startsWith("/api/")) {
+    if (!isAllowedOrigin(request)) {
+      sendError(response, new Error("请求来源不被允许"), 403);
+      return;
+    }
     handleApi(request, response, url);
     return;
   }
@@ -1179,12 +1302,13 @@ function handleRequest(request, response) {
 if (args.help) {
   usage();
 } else {
+  validateServerArgs();
   mkdirSync(join(SCRIPT_DIR, "runtime"), { recursive: true });
 
   const server = createServer(handleRequest);
   server.listen(args.port, args.host, () => {
     writeFileSync(UI_SERVER_PID_FILE, `${process.pid}\n`, "utf8");
-    const url = `http://${args.host}:${args.port}/`;
+    const url = `${serverBaseUrl()}/`;
     console.log(`企查查风险扫描可视化控制台已启动: ${url}`);
     console.log(`外部接口环境: ${BACKEND_CONFIG.environments.map((item) => `${item.name}=${item.url}`).join("，")}`);
     console.log("按 Ctrl+C 停止服务。");
@@ -1200,7 +1324,27 @@ if (args.help) {
     }
   };
 
+  let shuttingDown = false;
+  shutdownServer = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    await stopActiveTask();
+    for (const response of clients) response.end();
+    clients.clear();
+    await new Promise((resolveClose) => {
+      const timeout = setTimeout(() => {
+        server.closeAllConnections?.();
+        resolveClose();
+      }, 2000);
+      server.close(() => {
+        clearTimeout(timeout);
+        resolveClose();
+      });
+    });
+    process.exit(0);
+  };
+
   process.once("exit", cleanupPidFile);
-  process.once("SIGINT", () => server.close(() => process.exit(0)));
-  process.once("SIGTERM", () => server.close(() => process.exit(0)));
+  process.once("SIGINT", () => void shutdownServer());
+  process.once("SIGTERM", () => void shutdownServer());
 }

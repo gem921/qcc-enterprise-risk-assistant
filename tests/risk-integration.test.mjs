@@ -6,6 +6,7 @@ import {
   pushMajorRiskBatch,
 } from "../basic/risk-integration.mjs";
 import {
+  createV2RiskBatch,
   fetchPendingCompanyNames as fetchAdvancedCompanies,
   pushV2RiskBatch,
 } from "../advanced/risk-integration.mjs";
@@ -70,3 +71,44 @@ for (const [name, pushResults] of [
     assert.equal(request.options.headers.authorization, "Bearer test-token");
   });
 }
+
+test("advanced marks a complete successful batch as a full snapshot", () => {
+  const payload = createV2RiskBatch({
+    rows: [
+      { "公司名称": "示例企业一", "状态": "成功", "预警等级": "正常" },
+      { "公司名称": "示例企业二", "状态": "成功", "预警等级": "重大" },
+    ],
+    scanBatchId: "batch-full",
+    bizMonth: "2026-09",
+    expectedCompanyCount: 2,
+    usedLimit: false,
+  });
+
+  assert.equal(payload.fullSnapshot, true);
+  assert.equal(payload.scannedCompanyCount, 2);
+  assert.equal(payload.failedCompanyCount, 0);
+  assert.equal(payload.records.length, 2);
+});
+
+test("advanced does not mark limited or incomplete batches as full snapshots", () => {
+  const rows = [
+    { "公司名称": "示例企业一", "状态": "成功", "预警等级": "正常" },
+  ];
+  const limited = createV2RiskBatch({
+    rows,
+    scanBatchId: "batch-limited",
+    bizMonth: "2026-09",
+    expectedCompanyCount: 1,
+    usedLimit: true,
+  });
+  const incomplete = createV2RiskBatch({
+    rows,
+    scanBatchId: "batch-incomplete",
+    bizMonth: "2026-09",
+    expectedCompanyCount: 2,
+    usedLimit: false,
+  });
+
+  assert.equal(limited.fullSnapshot, false);
+  assert.equal(incomplete.fullSnapshot, false);
+});

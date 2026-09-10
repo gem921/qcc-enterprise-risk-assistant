@@ -111,7 +111,14 @@ export async function pushMajorRiskBatch({
   };
 }
 
-export function createV2RiskBatch({ rows, scanBatchId, bizMonth = "", sourceFile = "" }) {
+export function createV2RiskBatch({
+  rows,
+  scanBatchId,
+  bizMonth = "",
+  sourceFile = "",
+  expectedCompanyCount = 0,
+  usedLimit = false,
+}) {
   const batchId = String(scanBatchId || "").trim();
   if (!batchId) throw new Error("扫描批次不能为空");
   const resultRows = Array.isArray(rows) ? rows : [];
@@ -149,12 +156,21 @@ export function createV2RiskBatch({ rows, scanBatchId, bizMonth = "", sourceFile
   // 名单可能包含同名或企查查匹配后的重复行；同一批次同一公司只保留最后一条结果，
   // 避免触发后端 (biz_month, company_name) 唯一键冲突。
   const distinctRecords = [...new Map(records.map((record) => [record.companyName, record])).values()];
+  const scannedCompanyCount = resultRows.length;
+  const failedCompanyCount = resultRows.filter((row) => row?.["状态"] !== "成功").length;
+  const normalizedExpectedCount = toNonNegativeInteger(expectedCompanyCount);
+  const fullSnapshot = !usedLimit
+    && normalizedExpectedCount > 0
+    && scannedCompanyCount === normalizedExpectedCount
+    && failedCompanyCount === 0
+    && distinctRecords.length === normalizedExpectedCount;
   return {
     scanBatchId: batchId,
     bizMonth: normalizeMonth(bizMonth),
     sourceFile: String(sourceFile || "").trim(),
-    scannedCompanyCount: resultRows.length,
-    failedCompanyCount: resultRows.filter((row) => row?.["状态"] !== "成功").length,
+    fullSnapshot,
+    scannedCompanyCount,
+    failedCompanyCount,
     successfulCompanyCount: resultRows.filter((row) => row?.["状态"] === "成功").length,
     partialCompanyCount: resultRows.filter((row) => row?.["状态"] === "部分成功").length,
     publishableCompanyCount: distinctRecords.length,

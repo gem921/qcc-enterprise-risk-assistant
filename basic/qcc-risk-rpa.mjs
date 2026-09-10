@@ -502,8 +502,7 @@ function parseExcelCompanies(filePath) {
 }
 
 function findPythonPath() {
-  const bundled = "C:\\Users\\32719\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe";
-  return existsSync(bundled) ? bundled : "python";
+  return String(process.env.QCC_RISK_PYTHON || "python").trim() || "python";
 }
 
 function parseCsv(text) {
@@ -879,8 +878,11 @@ async function main() {
     console.log(`[${i + 1}/${selectedCompanies.length}] ${company}`);
 
     try {
+      console.log("  正在查询并打开企业详情页...");
       const detail = await openCompanyDetail(page, company, args);
+      console.log("  企业详情页已打开，正在读取风险概览...");
       const snapshot = await extractRiskSnapshot(page);
+      console.log("  风险概览读取完成，正在应用预警规则...");
       const decision = applyRules(snapshot, rules);
       rows.push(rowFromResult(company, detail, snapshot, decision));
       console.log(`  ${decision.level}: ${decision.warningSummary}`);

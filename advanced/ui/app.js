@@ -567,37 +567,47 @@ function kindLabel(kind) {
 }
 
 function addLocalLog(message) {
-  logEntries.push({
+  appendLog({
     time: new Date().toLocaleString(),
     kind: "system",
     message,
   });
+}
+
+function createLogLine(entry) {
+  const line = document.createElement("div");
+  line.className = `log-line ${entry.kind || ""}`;
+
+  const time = document.createElement("span");
+  time.className = "log-time";
+  time.textContent = entry.time || "";
+
+  const kind = document.createElement("span");
+  kind.className = "log-kind";
+  kind.textContent = logKindLabel(entry.kind);
+
+  const message = document.createElement("span");
+  message.className = "log-message";
+  message.textContent = entry.message || "";
+
+  line.append(time, kind, message);
+  return line;
+}
+
+function appendLog(entry) {
+  logEntries.push(entry);
   if (logEntries.length > 500) logEntries = logEntries.slice(-500);
-  renderLogs();
+  while (elements.logStream.childElementCount >= 260) {
+    elements.logStream.firstElementChild.remove();
+  }
+  elements.logStream.append(createLogLine(entry));
+  elements.logStream.scrollTop = elements.logStream.scrollHeight;
 }
 
 function renderLogs(entries = logEntries) {
   elements.logStream.innerHTML = "";
   const fragment = document.createDocumentFragment();
-  for (const entry of entries.slice(-260)) {
-    const line = document.createElement("div");
-    line.className = `log-line ${entry.kind || ""}`;
-
-    const time = document.createElement("span");
-    time.className = "log-time";
-    time.textContent = entry.time || "";
-
-    const kind = document.createElement("span");
-    kind.className = "log-kind";
-    kind.textContent = logKindLabel(entry.kind);
-
-    const message = document.createElement("span");
-    message.className = "log-message";
-    message.textContent = entry.message || "";
-
-    line.append(time, kind, message);
-    fragment.append(line);
-  }
+  for (const entry of entries.slice(-260)) fragment.append(createLogLine(entry));
   elements.logStream.append(fragment);
   elements.logStream.scrollTop = elements.logStream.scrollHeight;
 }
@@ -753,10 +763,7 @@ function connectEvents() {
   const source = new EventSource("/api/events");
 
   source.addEventListener("log", (event) => {
-    const entry = JSON.parse(event.data);
-    logEntries.push(entry);
-    if (logEntries.length > 500) logEntries = logEntries.slice(-500);
-    renderLogs();
+    appendLog(JSON.parse(event.data));
   });
 
   source.addEventListener("state", (event) => {

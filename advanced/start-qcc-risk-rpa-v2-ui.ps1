@@ -11,6 +11,10 @@ $url = "http://${hostName}:${port}/"
 New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null
 
 $nodeExe = (Get-Command node -ErrorAction Stop).Source
+$nodeMajor = [int](& $nodeExe -p "process.versions.node.split('.')[0]")
+if ($nodeMajor -lt 22) {
+  throw "Node.js 22 or later is required. Current major version: $nodeMajor."
+}
 
 function Get-ListenerPid {
   $line = netstat -ano -p TCP | Select-String -Pattern "^\s*TCP\s+$([regex]::Escape($hostName)):$port\s+\S+\s+LISTENING\s+(\d+)\s*$" | Select-Object -First 1
@@ -32,28 +36,30 @@ function Test-ProjectInstance([int]$processId) {
 }
 
 $listenerPid = Get-ListenerPid
-$recordedPid = $null
-if (Test-Path -LiteralPath $pidFile) {
-  $pidText = (Get-Content -LiteralPath $pidFile -Raw).Trim()
-  if ($pidText -match '^\d+$') {
-    $recordedPid = [int]$pidText
-  }
-}
 
 if ($listenerPid) {
   $listenerProcess = Get-Process -Id $listenerPid -ErrorAction SilentlyContinue
   $isNode = $listenerProcess -and $listenerProcess.ProcessName -eq "node"
-  $isRecordedInstance = $recordedPid -and $recordedPid -eq $listenerPid
   $isProjectInstance = Test-ProjectInstance $listenerPid
 
-  if (-not $isNode -or (-not $isRecordedInstance -and -not $isProjectInstance)) {
+  if (-not $isNode -or -not $isProjectInstance) {
     throw "Port $port is occupied by PID $listenerPid, but it is not a verified QCC Risk RPA UI instance."
   }
 
   Write-Host "Stopping previous QCC Risk RPA UI process (PID $listenerPid)..."
-  Stop-Process -Id $listenerPid -Force
-  for ($attempt = 0; $attempt -lt 30 -and (Get-ListenerPid); $attempt += 1) {
+  try {
+    Invoke-RestMethod -Method Post -Uri "${url}api/shutdown" -ContentType "application/json" -Body "{}" -TimeoutSec 8 | Out-Null
+  } catch {
+    Write-Warning "Graceful shutdown failed; the previous UI process will be stopped forcibly."
+  }
+  for ($attempt = 0; $attempt -lt 70 -and (Get-ListenerPid); $attempt += 1) {
     Start-Sleep -Milliseconds 100
+  }
+  if (Get-ListenerPid) {
+    Stop-Process -Id $listenerPid -Force
+    for ($attempt = 0; $attempt -lt 30 -and (Get-ListenerPid); $attempt += 1) {
+      Start-Sleep -Milliseconds 100
+    }
   }
 }
 

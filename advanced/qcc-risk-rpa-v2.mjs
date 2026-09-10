@@ -67,16 +67,16 @@ function usage() {
 企查查风险扫描 RPA
 
 用法:
-  node qcc-risk-rpa.mjs --login
-  node qcc-risk-rpa.mjs --input data/company-lists/companies.csv --output data/results/risk-results.csv
+  node qcc-risk-rpa-v2.mjs --login
+  node qcc-risk-rpa-v2.mjs --input data/company-lists/companies.csv --output data/results/risk-results.csv
 
 常用参数:
   --input <file>          公司名单，支持 csv/txt/xlsx/xlsm。默认: data/company-lists/companies.csv
   --output <file>         输出 csv。默认: data/results/risk-results-时间戳.csv
-  --rules <file>          预警规则 JSON。默认: risk-rules.json
+  --rules <file>          预警规则 JSON。默认: risk-rules-v2.json
   --profile-dir <dir>     浏览器登录态目录。默认: runtime/browser-profile
   --browser <file>        Chrome/Edge 路径，不填则自动查找
-  --port <number>         Chrome 调试端口。默认: 9222
+  --port <number>         Chrome 调试端口。默认: 9223
   --delay-ms <number>     每家公司之间固定等待毫秒数（兼容旧参数）。默认: 5000
   --delay-min-ms <number> 每家公司之间随机等待下限（毫秒）
   --delay-max-ms <number> 每家公司之间随机等待上限（毫秒）
@@ -95,7 +95,7 @@ function parseArgs(argv) {
     output: join(DEFAULT_RESULTS_DIR, `risk-results-${timestampForFile()}.csv`),
     rules: DEFAULT_RULES_FILE,
     profileDir: join(SCRIPT_DIR, "runtime", "browser-profile"),
-    port: 9222,
+    port: 9223,
     delayMs: 5000,
     delayMinMs: null,
     delayMaxMs: null,
@@ -581,8 +581,7 @@ function parseExcelCompanies(filePath) {
 }
 
 function findPythonPath() {
-  const bundled = "C:\\Users\\32719\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe";
-  return existsSync(bundled) ? bundled : "python";
+  return String(process.env.QCC_RISK_PYTHON || "python").trim() || "python";
 }
 
 function parseCsv(text) {
@@ -1580,16 +1579,21 @@ async function main() {
     let riskContext = null;
 
     try {
+      console.log("  正在查询并打开企业详情页...");
       detail = await openCompanyDetail(page, company, args);
       const companyPage = detail.page || page;
+      console.log("  企业详情页已打开，正在读取风险概览...");
       snapshot = await extractRiskSnapshot(companyPage);
       const ownRiskCount = snapshot.data?.["自身风险"];
       if (ownRiskCount === 0) {
         console.log("  自身风险为 0，跳过风险页和明细点击，直接按无近期风险处理");
         snapshot.detailRisks = createEmptyDetailRisks();
       } else if (Number.isFinite(ownRiskCount) && ownRiskCount > 0) {
+        console.log(`  读取到 ${ownRiskCount} 条自身风险，正在打开风险明细页...`);
         riskContext = await openOwnRiskPage(client, companyPage, detail.url || snapshot.url);
+        console.log("  风险明细页已打开，正在核验近期风险记录...");
         snapshot.detailRisks = await extractRecentDetailRisks(riskContext.page);
+        console.log("  近期风险记录核验完成，正在应用预警规则...");
       } else {
         throw new Error("未能读取“自身风险”数量，不能判定该公司无风险");
       }
